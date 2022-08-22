@@ -1,0 +1,19 @@
+version:
+  '2.2'
+
+services:
+  localstack:
+    image: localstack/localstack:1.0.3
+    ports:
+      - "127.0.0.1:4566:4566/tcp"
+    environment:
+      - SERVICES=s3
+      - DEBUG=debug
+      - DEFAULT_REGION=ap-northeast-1
+      - USE_SINGLE_REGION
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - INIT_SCRIPTS_PATH=/localstack_init
+    volumes:
+      - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "./localstack_init:/localstack_init"
