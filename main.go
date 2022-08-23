@@ -14,18 +14,16 @@ import (
 	"path"
 )
 
-type Config struct {
+type Input struct {
 	Region string
-	Bucket string
 	Dir    string
 }
 
 func main() {
 	dir, _ := os.UserHomeDir()
-	c := Config{
+	c := Input{
 		Region: endpoints.ApNortheast1RegionID,
-		Bucket: "local-test",
-		Dir:    path.Join(dir, "mount", "test11"),
+		Dir:    path.Join(dir, "mount", "test20"),
 	}
 
 	if err := mount(c); err != nil {
@@ -33,15 +31,16 @@ func main() {
 	}
 }
 
-func mount(c Config) error {
+func mount(c Input) error {
+
+	// create mount point dir
+	_ = os.MkdirAll(c.Dir, 755)
+
 	if err := doHealthCheck(); err != nil {
 		return err
 	}
 
-	sess, err := lib.NewS3Session(c.Region, c.Bucket)
-	if err != nil {
-		return err
-	}
+	sess := lib.NewS3Session(c.Region)
 
 	fs := lib.NewFileSystem(sess)
 	fs.SetDebug(true) // TODO
@@ -50,6 +49,7 @@ func mount(c Config) error {
 	if err != nil {
 		return err
 	}
+	defer s.Unmount()
 
 	// ctrl + C
 	ch := make(chan os.Signal, 1)
@@ -66,6 +66,7 @@ func mount(c Config) error {
 		}
 	}()
 
+	fmt.Println("mount start")
 	s.Serve()
 	return nil
 }

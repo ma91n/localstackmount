@@ -12,25 +12,20 @@ import (
 
 type OpenedFile struct {
 	nodefs.File
-	file  *File
-	dirty bool
-	open  bool
+	file *File
+	open bool
 }
 
-func NewOpenedFile(file *File) *OpenedFile {
-	return &OpenedFile{
-		File:  nodefs.NewDefaultFile(),
-		file:  file,
-		dirty: false,
-		open:  true,
-	}
-}
+//func NewOpenedFile(file *File) *OpenedFile {
+//	return &OpenedFile{
+//		File: nodefs.NewDefaultFile(),
+//		file: file,
+//		open: true,
+//	}
+//}
 
 func (f *OpenedFile) Flush() fuse.Status {
-	if f.dirty {
-		_ = f.file.Save()
-		f.dirty = false
-	}
+	_ = f.file.Save()
 	return fuse.OK
 }
 
@@ -97,7 +92,6 @@ func (f *OpenedFile) Read(dest []byte, off int64) (fuse.ReadResult, fuse.Status)
 }
 
 func (f *OpenedFile) Write(data []byte, off int64) (written uint32, code fuse.Status) {
-	f.dirty = true
 
 	first := off / f.file.ExtentSize
 	startOffset := off - (first)*f.file.ExtentSize
@@ -130,18 +124,12 @@ func (f *OpenedFile) Write(data []byte, off int64) (written uint32, code fuse.St
 }
 
 func (f *OpenedFile) Release() {
-	if f.dirty {
-		_ = f.file.Save()
-		f.dirty = false
-	}
+	_ = f.file.Save()
 	f.open = false
 }
 
 func (f *OpenedFile) Fsync(flags int) (code fuse.Status) {
-	if f.dirty {
-		_ = f.file.Save()
-		f.dirty = false
-	}
+	_ = f.file.Save()
 	return fuse.OK
 }
 
@@ -163,7 +151,7 @@ func (f *OpenedFile) GetAttr(out *fuse.Attr) fuse.Status {
 		return fuse.EBADF
 	}
 
-	out.Ino = InodeHash(f.file.Key)
+	out.Ino = inodeHash(f.file.Key)
 	out.Size = uint64(f.file.Meta.Size)
 	out.Mode = f.file.Meta.Mode
 	out.Nlink = 1

@@ -1,11 +1,7 @@
 package lib
 
 import (
-	"bytes"
-	"sync"
 	"time"
-
-	"encoding/json"
 
 	"github.com/hanwen/go-fuse/fuse"
 )
@@ -35,12 +31,13 @@ type Directory struct {
 }
 
 func (o *Directory) Save() error {
-	result, err := json.Marshal(o)
-	if err != nil {
-		return err
-	}
-
-	return o.sess.Upload(o.Key, bytes.NewReader(result))
+	//result, err := json.Marshal(o)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//return o.sess.Upload(o.Key, bytes.NewReader(result))
+	return nil
 }
 
 type File struct {
@@ -53,47 +50,48 @@ type File struct {
 }
 
 func (o *File) Save() error {
-	wg := sync.WaitGroup{}
-	errc := make(chan error)
-	done := make(chan struct{})
-	for _, e := range o.Extent {
-		wg.Add(1)
-		go func(e *Extent) {
-			if !e.dirty {
-				wg.Done()
-				return
-			}
-			key := e.CurrentKey()
-			if o.sess.Exists(key) {
-				wg.Done()
-				return
-			}
-			err := o.sess.Upload(key, bytes.NewReader(e.body))
-			if err != nil {
-				errc <- err
-				return
-			}
-			e.dirty = false
-			wg.Done()
-		}(e)
-	}
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
+	//wg := sync.WaitGroup{}
+	//errc := make(chan error)
+	//done := make(chan struct{})
+	//for _, e := range o.Extent {
+	//	wg.Add(1)
+	//	go func(e *Extent) {
+	//		if !e.dirty {
+	//			wg.Done()
+	//			return
+	//		}
+	//		key := e.CurrentKey()
+	//		if o.sess.Exists(key) {
+	//			wg.Done()
+	//			return
+	//		}
+	//		err := o.sess.Upload(key, bytes.NewReader(e.body))
+	//		if err != nil {
+	//			errc <- err
+	//			return
+	//		}
+	//		e.dirty = false
+	//		wg.Done()
+	//	}(e)
+	//}
+	//go func() {
+	//	wg.Wait()
+	//	close(done)
+	//}()
+	//
+	//select {
+	//case err := <-errc:
+	//	return err
+	//case <-done:
+	//	marshal, err := json.Marshal(o)
+	//	if err != nil {
+	//		return err
+	//	}
+	//
+	//	return o.sess.Upload(o.Key, bytes.NewReader(marshal))
+	//}
 
-	select {
-	case err := <-errc:
-		return err
-	case <-done:
-		marshal, err := json.Marshal(o)
-		if err != nil {
-			return err
-		}
-
-		return o.sess.Upload(o.Key, bytes.NewReader(marshal))
-	}
-
+	return nil
 }
 
 type Extent struct {
@@ -104,45 +102,29 @@ type Extent struct {
 }
 
 func (e *Extent) CurrentKey() string {
-	return e.sess.KeyGen(e.body)
+	return keyGen(e.body)
 }
 
 func (e *Extent) Fill() error {
-	if e.dirty || len(e.body) != 0 {
-		return nil
-	}
-
-	body, err := e.sess.Download(e.Key)
-	if err != nil {
-		return err
-	}
-
-	e.body = body
+	//if e.dirty || len(e.body) != 0 {
+	//	return nil
+	//}
+	//
+	//body, err := e.sess.Get(e.Key)
+	//if err != nil {
+	//	return err
+	//}
+	//
+	//e.body = body
 	return nil
 }
 
-type SymLink struct {
-	Key    string `json:"key"`
-	Meta   Meta   `json:"meta"`
-	LinkTo string `json:"linkto"`
-	sess   *S3Session
-}
-
-func (o *SymLink) Save() error {
-	marshal, err := json.Marshal(o)
-	if err != nil {
-		return err
-	}
-
-	return o.sess.Upload(o.Key, bytes.NewReader(marshal))
-}
-
-func NewMeta(mode uint32, context *fuse.Context) Meta {
+func NewMeta(mode uint32, ctx *fuse.Context) Meta {
 	return Meta{
 		Mode:  mode,
 		Size:  0,
-		UID:   context.Uid,
-		GID:   context.Gid,
+		UID:   ctx.Uid,
+		GID:   ctx.Gid,
 		Atime: time.Now(),
 		Ctime: time.Now(),
 		Mtime: time.Now(),
