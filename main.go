@@ -43,7 +43,6 @@ func mount(c Input) error {
 	sess := lib.NewS3Session(c.Region)
 
 	fs := lib.NewFileSystem(sess)
-	fs.SetDebug(true) // TODO
 
 	s, _, err := nodefs.MountRoot(c.Dir, fs.Root(), nil)
 	if err != nil {

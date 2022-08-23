@@ -2,30 +2,27 @@ package lib
 
 import (
 	"fmt"
+	"github.com/hanwen/go-fuse/fuse"
+	"github.com/hanwen/go-fuse/fuse/nodefs"
+	"github.com/hanwen/go-fuse/fuse/pathfs"
 	"github.com/spaolacci/murmur3"
 	"hash/fnv"
 	"log"
 	"path"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/hanwen/go-fuse/fuse"
-	"github.com/hanwen/go-fuse/fuse/nodefs"
-	"github.com/hanwen/go-fuse/fuse/pathfs"
-	uuid "github.com/satori/go.uuid"
 )
 
 type FileSystem struct {
 	pathfs.FileSystem
 
-	Sess *S3Session
+	sess *S3Session
 }
 
 func NewFileSystem(sess *S3Session) *pathfs.PathNodeFs {
 	return pathfs.NewPathNodeFs(&FileSystem{
 		FileSystem: pathfs.NewDefaultFileSystem(),
-		Sess:       sess,
+		sess:       sess,
 	}, nil)
 }
 
@@ -53,7 +50,7 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 	items := strings.Split(path.Clean(name), string(filepath.Separator))
 	bucket, currentPath := items[0], strings.Join(items[1:], string(filepath.Separator))
 
-	list, err := f.Sess.List(bucket, currentPath)
+	list, err := f.sess.List(bucket, currentPath)
 	if err != nil {
 		return nil, fuse.ENOENT
 	}
@@ -107,7 +104,7 @@ func (f *FileSystem) Open(name string, flags uint32, ctx *fuse.Context) (nodefs.
 	items := strings.Split(path.Clean(name), string(filepath.Separator))
 	bucket, currentPath := items[0], strings.Join(items[1:], string(filepath.Separator))
 
-	get, err := f.Sess.Get(bucket, currentPath)
+	get, err := f.sess.Get(bucket, currentPath)
 	if err != nil {
 		log.Println("get err:", err)
 		return nil, fuse.ENOENT
@@ -117,77 +114,31 @@ func (f *FileSystem) Open(name string, flags uint32, ctx *fuse.Context) (nodefs.
 	return nodefs.NewDataFile(get), fuse.OK
 }
 
-//func (f *FileSystem) getParent(name string) (*Directory, fuse.Status) {
-//	parent := filepath.Dir(name)
-//	key, err := f.Sess.PathWalk(parent)
-//	if err != nil {
-//		return nil, fuse.ENOENT
-//	}
-//
-//	dir, err := f.Sess.NewDirectory(key)
-//	if err != nil {
-//		return nil, fuse.EACCES
-//	}
-//
-//	return dir, fuse.OK
-//}
-
 func (f *FileSystem) Rename(oldName string, newName string, _ *fuse.Context) fuse.Status {
+	// TODO objectのみは許可する。ディレクトリの変更は許容しない
 	return fuse.EIO
 }
 
 func (f *FileSystem) Mkdir(name string, mode uint32, ctx *fuse.Context) fuse.Status {
+	// TODO S3でディレクトリの表現をマネジメントコンソールを見て確認
 	return fuse.OK
-	//dir, status := f.getParent(name)
-	//if status != fuse.OK {
-	//	return status
-	//}
-	//
-	//// Set
-	//newKey := generateObjectKey()
-	//dir.FileMeta[filepath.Base(name)] = newKey
-	//
-	//newDir := f.Sess.CreateDirectory(newKey, mode, ctx)
-	//
-	//// Save
-	//if err := newDir.Save(); err != nil {
-	//	return fuse.EIO
-	//}
-	//
-	//if err := dir.Save(); err != nil {
-	//	return fuse.EIO
-	//}
-	//
-	//return fuse.OK
-}
-
-func (f *FileSystem) Symlink(value string, linkName string, ctx *fuse.Context) fuse.Status {
-	return fuse.EIO
 }
 
 func (f *FileSystem) Create(name string, flags uint32, mode uint32, ctx *fuse.Context) (nodefs.File, fuse.Status) {
+	log.Printf("Create name:%s", name)
+
+	items := strings.Split(path.Clean(name), string(filepath.Separator))
+	bucket, currentPath := items[0], strings.Join(items[1:], string(filepath.Separator))
+
+	if f.sess.Exists(bucket, currentPath) {
+		return nil, fuse.EINVAL // TODO already existsを表現したい
+	}
+
+	if err := f.sess.PutBytes(bucket, name, make([]byte, 0)); err != nil {
+		return nil, fuse.EIO
+	}
+
 	return nil, fuse.OK
-	//// TODO: flags??
-	//dir, status := f.getParent(name)
-	//if status != fuse.OK {
-	//	return nil, status
-	//}
-	//
-	//// Set
-	//newKey := generateObjectKey()
-	//dir.FileMeta[filepath.Base(name)] = newKey
-	//
-	//file := f.Sess.CreateFile(newKey, dir.Key, mode, ctx)
-	//
-	//if err := file.Save(); err != nil {
-	//	return nil, fuse.EIO
-	//}
-	//
-	//if err := dir.Save(); err != nil {
-	//	return nil, fuse.EIO
-	//}
-	//
-	//return NewOpenedFile(file), fuse.OK
 }
 
 func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -195,7 +146,7 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 
 	if len(name) == 0 {
 		// Rootの場合、バケット名を返す
-		buckets, err := f.Sess.ListBuckets()
+		buckets, err := f.sess.ListBuckets()
 		if err != nil {
 			return nil, fuse.ENOENT
 		}
@@ -211,11 +162,10 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 	}
 
 	items := strings.Split(path.Clean(name), string(filepath.Separator))
-
 	bucket, currentPath := items[0], strings.Join(items[1:], string(filepath.Separator))
 	log.Printf("bucket:%s key:%s\n", bucket, currentPath)
 
-	objKeys, err := f.Sess.List(bucket, currentPath)
+	objKeys, err := f.sess.List(bucket, currentPath)
 	if err != nil {
 		return nil, fuse.ENOENT
 	}
@@ -240,34 +190,18 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 	return entries, fuse.OK
 }
 
-func (f *FileSystem) OnMount(_ *pathfs.PathNodeFs) {}
-
-func (f *FileSystem) OnUnmount() {}
-
-func (f *FileSystem) Chmod(name string, mode uint32, _ *fuse.Context) (code fuse.Status) {
-	log.Println("Chmod")
-	return fuse.EIO
-}
-
-func (f *FileSystem) Chown(name string, uid uint32, gid uint32, _ *fuse.Context) fuse.Status {
-	log.Println("Chown")
-
-	return fuse.EIO
-}
-
-func (f *FileSystem) Utimens(name string, Atime *time.Time, Mtime *time.Time, _ *fuse.Context) fuse.Status {
-	log.Println("Utimens")
-
-	return fuse.EIO
-}
-
 func (f *FileSystem) Access(name string, mode uint32, _ *fuse.Context) (code fuse.Status) {
 	log.Printf("Access: name:%s\n", name) // local-test/2022/08/22/put1.txt
+
+	if name == "" {
+		// root
+		return fuse.OK
+	}
 
 	items := strings.Split(path.Clean(name), string(filepath.Separator))
 	bucket, key := items[0], strings.Join(items[1:], string(filepath.Separator))
 
-	list, err := f.Sess.List(bucket, key)
+	list, err := f.sess.List(bucket, key)
 	if err != nil {
 		log.Println("access ng")
 		return fuse.ENOENT
@@ -284,80 +218,30 @@ func (f *FileSystem) Access(name string, mode uint32, _ *fuse.Context) (code fus
 func (f *FileSystem) Truncate(name string, size uint64, _ *fuse.Context) (code fuse.Status) {
 	log.Println("Truncate")
 
-	//key, err := f.Sess.PathWalk(name)
-	//if err != nil {
-	//	return fuse.ENOENT
-	//}
-	//
-	//node, err := f.Sess.NewFile(key)
-	//if err != nil {
-	//	return fuse.ENOENT
-	//}
-	//
-	//node.Meta.Size = int64(size)
-	//if err = node.Save(); err != nil {
-	//	return fuse.EIO
-	//}
-	//
-	return fuse.OK
-}
+	items := strings.Split(path.Clean(name), string(filepath.Separator))
+	bucket, currentPath := items[0], strings.Join(items[1:], string(filepath.Separator))
+	log.Printf("bucket:%s key:%s\n", bucket, currentPath)
 
-func (f *FileSystem) Readlink(_ string, _ *fuse.Context) (string, fuse.Status) {
-	log.Println("Readlink")
-	return "", fuse.ENOENT
+	exists := f.sess.Exists(bucket, currentPath)
+	if exists {
+		// TODO 削除処理
+		return fuse.OK
+	}
+	return fuse.ENOENT
 }
 
 func (f *FileSystem) Rmdir(name string, ctx *fuse.Context) (code fuse.Status) {
 	return f.Unlink(name, ctx)
 }
 
-func (f *FileSystem) Unlink(name string, _ *fuse.Context) (code fuse.Status) {
-	log.Println("Unlink")
-	return fuse.EIO
-}
-
 func (f *FileSystem) String() string {
 	return "localstackmount"
 }
-
-func (f *FileSystem) GetXAttr(name string, attribute string, ctx *fuse.Context) (data []byte, code fuse.Status) {
-	return nil, fuse.EIO
-}
-
-func (f *FileSystem) ListXAttr(name string, context *fuse.Context) (attributes []string, code fuse.Status) {
-	return nil, fuse.EIO
-}
-
-func (f *FileSystem) RemoveXAttr(name string, attr string, context *fuse.Context) fuse.Status {
-	return fuse.EIO
-}
-
-func (f *FileSystem) SetXAttr(name string, attr string, data []byte, flags int, ctx *fuse.Context) fuse.Status {
-	return fuse.EIO
-}
-
-func (f *FileSystem) Link(oldName string, newName string, ctx *fuse.Context) (code fuse.Status) {
-	return fuse.EIO
-}
-
-func (f *FileSystem) Mknod(name string, mode uint32, dev uint32, ctx *fuse.Context) fuse.Status {
-	return fuse.EIO
-}
-
-func (f *FileSystem) StatFs(name string) *fuse.StatfsOut {
-	return nil
-}
-
-func (f *FileSystem) SetDebug(debug bool) {}
 
 func inodeHash(o string) uint64 {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(o))
 	return h.Sum64()
-}
-
-func generateObjectKey() string {
-	return uuid.NewV4().String()
 }
 
 func keyGen(input []byte) string {

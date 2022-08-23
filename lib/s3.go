@@ -1,17 +1,13 @@
 package lib
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/hanwen/go-fuse/fuse"
-	"github.com/pkg/errors"
 	"io"
-	"log"
-	"syscall"
 )
 
 type S3Session struct {
@@ -24,7 +20,7 @@ func NewS3Session(region string) *S3Session {
 			Credentials:      credentials.NewStaticCredentials("test", "test", ""),
 			Endpoint:         aws.String("http://localhost:4566"),
 			Region:           aws.String(region),
-			S3ForcePathStyle: aws.Bool(true), // LocalStackのEndpointを指定する時に必要
+			S3ForcePathStyle: aws.Bool(true),
 		}),
 	}
 }
@@ -37,119 +33,7 @@ func (s *S3Session) Exists(bucket, key string) bool {
 	return err == nil
 }
 
-func (s *S3Session) CreateDirectory(key string, mode uint32, ctx *fuse.Context) *Directory {
-	return &Directory{
-		Key:      key,
-		Meta:     NewMeta(fuse.S_IFDIR|mode, ctx),
-		FileMeta: make(map[string]string, 0),
-		sess:     s,
-	}
-}
-
-func (s *S3Session) NewDirectory(bucket, key string) (*Directory, error) {
-	log.Println("new directory", key)
-
-	if key == "" {
-		return nil, errors.New("Key shouldn't be empty")
-	}
-
-	body, err := s.Get(bucket, key)
-	if err != nil {
-		return nil, err
-	}
-
-	var dir *Directory
-	if err = json.Unmarshal(body, &dir); err != nil {
-		return nil, err
-	}
-	dir.sess = s
-
-	return dir, nil
-}
-
-func (s *S3Session) CreateFile(key, parent string, mode uint32, context *fuse.Context) *File {
-	log.Println("create file")
-
-	return &File{
-		Key:        key,
-		Meta:       NewMeta(fuse.S_IFREG|mode, context),
-		ExtentSize: 6 * 1024, // 8KB
-		Extent:     make(map[int64]*Extent, 0),
-		sess:       s,
-	}
-}
-
-func (s *S3Session) NewFile(bucket, key string) (*File, error) {
-	log.Println("new file")
-
-	obj, err := s.Get(bucket, key)
-	if err != nil {
-		return nil, err
-	}
-
-	var node *File
-	if err = json.Unmarshal(obj, &node); err != nil {
-		return nil, err
-	}
-
-	node.sess = s
-	for _, e := range node.Extent {
-		e.sess = s
-	}
-
-	return node, nil
-}
-func (s *S3Session) CreateExtent(size int64) *Extent {
-	return &Extent{
-		body: make([]byte, size),
-		sess: s,
-	}
-}
-
-func (s *S3Session) NewNode(bucket, key string) (*Node, error) {
-	obj, err := s.Get(bucket, key)
-	if err != nil {
-		return nil, err
-	}
-
-	var node *Node
-	if err = json.Unmarshal(obj, &node); err != nil {
-		return nil, err
-	}
-
-	return node, err
-}
-
-// NewTypedNode returns Directory, File or Symlink
-func (s *S3Session) NewTypedNode(bucket, key string) (interface{}, error) {
-	obj, err := s.Get(bucket, key)
-	if err != nil {
-		return nil, err
-	}
-
-	var tmpNode *Node
-	if err = json.Unmarshal(obj, &tmpNode); err != nil {
-		return nil, err
-	}
-
-	var node interface{}
-
-	switch tmpNode.Meta.Mode & syscall.S_IFMT {
-	case syscall.S_IFDIR:
-		node = &Directory{sess: s}
-	case syscall.S_IFREG:
-		node = &File{sess: s}
-	//case syscall.S_IFLNK:
-	//	node = &SymLink{sess: s}
-	default:
-		panic("Not implemented")
-	}
-
-	err = json.Unmarshal(obj, &node)
-	return node, err
-}
-
-func (s *S3Session) Upload(bucket, key string, r io.ReadSeeker) error {
+func (s *S3Session) Put(bucket, key string, r io.ReadSeeker) error {
 	_, err := s.svc.PutObject(&s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -160,6 +44,10 @@ func (s *S3Session) Upload(bucket, key string, r io.ReadSeeker) error {
 	}
 
 	return nil
+}
+
+func (s *S3Session) PutBytes(bucket, key string, b []byte) error {
+	return s.Put(bucket, key, bytes.NewReader(b))
 }
 
 func (s *S3Session) Get(bucket, key string) ([]byte, error) {
