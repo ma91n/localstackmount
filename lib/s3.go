@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
@@ -111,6 +112,19 @@ func (s *S3Session) Delete(bucket, key string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("delete object: %w", err)
+	}
+	return nil
+}
+
+func (s *S3Session) CreateBucket(bucket string) error {
+	_, err := s.svc.CreateBucket(&s3.CreateBucketInput{
+		Bucket: &bucket,
+		CreateBucketConfiguration: &s3.CreateBucketConfiguration{
+			LocationConstraint: aws.String(endpoints.ApNortheast1RegionID), // TODO changeable
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create bucket: %v", err)
 	}
 	return nil
 }

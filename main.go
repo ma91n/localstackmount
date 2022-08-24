@@ -23,7 +23,7 @@ func main() {
 	dir, _ := os.UserHomeDir()
 	c := Input{
 		Region: endpoints.ApNortheast1RegionID,
-		Dir:    path.Join(dir, "mount", "test38"),
+		Dir:    path.Join(dir, "mount", "test39"),
 	}
 
 	if err := mount(c); err != nil {

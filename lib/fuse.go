@@ -64,14 +64,19 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 		return nil, fuse.ENOENT
 	}
 
-	if list[0] == pos.Key {
-		//log.Println("GetAttr name:", name, "判定:ファイル")
-		// 完全一致の場合はS3オブジェクトであるのでファイルを返す
+	if list[0] == pos.Key || strings.TrimRight(list[0], "/") == pos.Key {
+		// 完全一致の場合はS3オブジェクトであるのでファイルとして扱う。ただし末尾がスラッシュの場合はフォルダ扱いとする
+		var mode uint32 = fuse.S_IFREG | 0755
+
+		if strings.HasSuffix(list[0], "/") {
+			mode = fuse.S_IFDIR | 0755
+		}
+
 		return &fuse.Attr{
 			Ino:    inodeHash(name),
 			Size:   uint64(15), // TODO
 			Blocks: 1,
-			Mode:   fuse.S_IFREG | 0755,
+			Mode:   mode,
 			Owner: fuse.Owner{
 				Uid: ctx.Owner.Uid,
 				Gid: ctx.Owner.Gid,
@@ -79,7 +84,6 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 		}, fuse.OK
 	}
 
-	//log.Println("GetAttr name:", name, "判定:ディレクトリ")
 	return &fuse.Attr{
 		Ino:  inodeHash(name),
 		Mode: fuse.S_IFDIR | 0755,
@@ -141,7 +145,31 @@ func (f *FileSystem) Rename(oldName string, newName string, _ *fuse.Context) fus
 }
 
 func (f *FileSystem) Mkdir(name string, mode uint32, ctx *fuse.Context) fuse.Status {
-	// TODO S3でディレクトリの表現をマネジメントコンソールを見て確認
+	pos := Parse(name)
+
+	if pos.IsMountRoot {
+		// bug?
+		return fuse.EISDIR
+	}
+
+	if pos.IsBucketRoot {
+		if f.sess.ExistsBucket(pos.Bucket) {
+			return fuse.ENODATA // TODO already exists
+		}
+		if err := f.sess.CreateBucket(pos.Bucket); err != nil {
+			return fuse.EIO
+		}
+		return fuse.OK
+	}
+
+	// S3は slash / で終わるとフォルダとして判定される
+	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-folders.html
+	dirName := pos.Key + "/"
+
+	if err := f.sess.PutBytes(pos.Bucket, dirName, []byte{}); err != nil {
+		return fuse.EIO
+	}
+
 	return fuse.OK
 }
 
