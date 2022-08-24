@@ -8,9 +8,11 @@ import (
 	"github.com/spaolacci/murmur3"
 	"hash/fnv"
 	"log"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type FileSystem struct {
@@ -27,8 +29,8 @@ func NewFileSystem(sess *S3Session) *pathfs.PathNodeFs {
 }
 
 func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.Status) {
-	log.Printf("GetAttr name:%s", name)
-
+	/*	log.Printf("GetAttr name:%s", name)
+	 */
 	if len(name) == 0 {
 		// rootの場合
 		return &fuse.Attr{
@@ -58,10 +60,10 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 		return nil, fuse.ENOENT
 	}
 
-	log.Println("GetAttr name:", name, "list:", list)
+	//log.Println("GetAttr name:", name, "list:", list)
 
 	if list[0] == currentPath {
-		log.Println("GetAttr name:", name, "判定:ファイル")
+		//log.Println("GetAttr name:", name, "判定:ファイル")
 		// 完全一致の場合はS3オブジェクトであるのでファイルを返す
 		return &fuse.Attr{
 			Ino:       inodeHash(keyGen([]byte(name))),
@@ -78,7 +80,7 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 			},
 		}, fuse.OK
 	} else if len(list) >= 1 {
-		log.Println("GetAttr name:", name, "判定:ディレクトリ")
+		//log.Println("GetAttr name:", name, "判定:ディレクトリ")
 		return &fuse.Attr{
 			Ino:       inodeHash(rootKey()),
 			Size:      uint64(15), // TODO
@@ -134,11 +136,79 @@ func (f *FileSystem) Create(name string, flags uint32, mode uint32, ctx *fuse.Co
 		return nil, fuse.EINVAL // TODO already existsを表現したい
 	}
 
-	if err := f.sess.PutBytes(bucket, name, make([]byte, 0)); err != nil {
+	if err := f.sess.PutBytes(bucket, currentPath, make([]byte, 0)); err != nil {
+		log.Printf("put bytes:%v", err)
 		return nil, fuse.EIO
 	}
 
-	return nil, fuse.OK
+	log.Printf("create ok")
+	return nodefs.NewDefaultFile(), fuse.OK
+}
+
+type S3File struct {
+	nodefs.File
+
+	bucket string
+	key    string
+
+	sess S3Session
+
+	temp *os.File
+}
+
+func (f S3File) Read(dest []byte, off int64) (fuse.ReadResult, fuse.Status) {
+	data, err := f.sess.Get(f.bucket, f.key)
+	if err != nil {
+		return nil, fuse.EIO
+	}
+	end := int(off) + len(dest)
+	if end > len(data) {
+		end = len(data)
+	}
+
+	return fuse.ReadResultData(data[off:end]), fuse.OK
+}
+
+func (f S3File) Write(data []byte, off int64) (written uint32, code fuse.Status) {
+
+	if f.temp == nil {
+		// 追記するには一度getする必要がある
+		data, err := f.sess.Get(f.bucket, f.key)
+		if err != nil {
+			return 0, fuse.EIO
+		}
+
+		temp, err := os.CreateTemp("", "localstackmount")
+		if err != nil {
+			return 0, fuse.ENOSYS
+		}
+		_, _ = temp.Write(data)
+
+		f.temp = temp
+	}
+
+	length, _ := f.temp.WriteAt(data, off)
+	return uint32(length), fuse.OK
+}
+
+func (f S3File) Flush() fuse.Status {
+	if f.temp == nil {
+		// 書き込まれたデータがない？
+		return fuse.OK
+	}
+	defer os.Remove(f.temp.Name()) // clean up
+
+	if err := f.sess.Put(f.bucket, f.key, f.temp); err != nil {
+		return fuse.EIO
+	}
+
+	return fuse.OK
+}
+
+func (f S3File) Utimens(atime *time.Time, mtime *time.Time) fuse.Status {
+	// TODO metadataにatime, mimeなどを格納する？
+	// https://stackoverflow.com/questions/13455168/is-there-a-way-to-touch-a-file-in-amazon-s3
+	return fuse.OK
 }
 
 func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fuse.Status) {
@@ -187,6 +257,8 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 		continue
 	}
 
+	// TODO entries の重複排除をすべき
+
 	return entries, fuse.OK
 }
 
@@ -230,8 +302,18 @@ func (f *FileSystem) Truncate(name string, size uint64, _ *fuse.Context) (code f
 	return fuse.ENOENT
 }
 
-func (f *FileSystem) Rmdir(name string, ctx *fuse.Context) (code fuse.Status) {
-	return f.Unlink(name, ctx)
+func (f *FileSystem) Utimens(name string, Atime *time.Time, Mtime *time.Time, context *fuse.Context) (code fuse.Status) {
+	log.Println("Utimens name:", name)
+
+	items := strings.Split(path.Clean(name), string(filepath.Separator))
+	bucket, currentPath := items[0], strings.Join(items[1:], string(filepath.Separator))
+	log.Printf("bucket:%s key:%s\n", bucket, currentPath)
+
+	if f.sess.Exists(bucket, currentPath) {
+		// TODO S3上のメタファイルを書き換える？
+		return fuse.OK
+	}
+	return fuse.ENOENT
 }
 
 func (f *FileSystem) String() string {
