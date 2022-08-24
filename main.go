@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"syscall"
 )
 
 type Input struct {
@@ -21,9 +22,10 @@ type Input struct {
 
 func main() {
 	dir, _ := os.UserHomeDir()
+
 	c := Input{
 		Region: endpoints.ApNortheast1RegionID,
-		Dir:    path.Join(dir, "mount", "test39"),
+		Dir:    path.Join(dir, "mount/localstack"),
 	}
 
 	if err := mount(c); err != nil {
@@ -52,7 +54,7 @@ func mount(c Input) error {
 
 	// ctrl + C
 	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, os.Interrupt)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for {
 			<-ch
@@ -61,6 +63,7 @@ func mount(c Input) error {
 				log.Println("unmounted")
 				break
 			}
+			log.Println("May be in use by another user")
 			log.Print("unmount failed: ", err)
 		}
 	}()
