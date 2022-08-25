@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
-	"github.com/ma91n/localstackmount/lib"
+	"github.com/ma91n/localstackmount/fs"
 	"io"
 	"log"
 	"net/http"
@@ -19,6 +19,7 @@ import (
 type Input struct {
 	Region string
 	Dir    string
+	Debug  bool
 }
 
 func main() {
@@ -27,6 +28,7 @@ func main() {
 	c := Input{
 		Region: endpoints.ApNortheast1RegionID,
 		Dir:    path.Join(dir, "mount", "localstack"),
+		Debug:  false,
 	}
 
 	if err := mount(c); err != nil {
@@ -43,11 +45,14 @@ func mount(c Input) error {
 		return err
 	}
 
-	sess := lib.NewS3Session(c.Region)
+	sess := fs.NewS3Session(c.Region)
 
-	fs := lib.NewFileSystem(sess)
+	fileSystem := fs.NewFileSystem(sess)
 
-	s, _, err := nodefs.MountRoot(c.Dir, fs.Root(), nil)
+	opts := &nodefs.Options{
+		Debug: c.Debug,
+	}
+	s, _, err := nodefs.MountRoot(c.Dir, fileSystem.Root(), opts)
 	if err != nil {
 		return fmt.Errorf("nodefs mount root: %w", err)
 	}
@@ -64,12 +69,12 @@ func mount(c Input) error {
 				log.Println("unmounted")
 				break
 			}
-			log.Println("May be in use by another user")
-			log.Print("unmount failed: ", err)
+			fmt.Println("May be in use by another user")
+			fmt.Print("unmount failed: ", err)
 		}
 	}()
 	abs, _ := filepath.Abs(c.Dir)
-	fmt.Printf("mount start: %s¥n", abs)
+	fmt.Println("mount start:", abs)
 
 	s.Serve()
 	return nil

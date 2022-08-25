@@ -10,6 +10,15 @@ Install osxfuse below link.
 
 https://osxfuse.github.io/2020/10/05/OSXFUSE-3.11.2.html
 
+## WSL settings
+
+Make sure you edit
+
+`/etc/fuse.conf` and add `user_allow_other`.
+
+* https://github.com/microsoft/WSL/issues/8580
+* https://github.com/microsoft/WSL/issues/8498
+
 ## Quick start
 
 ```sh

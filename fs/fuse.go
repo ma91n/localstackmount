@@ -1,4 +1,4 @@
-package lib
+package fs
 
 import (
 	"fmt"
@@ -18,43 +18,43 @@ type FileSystem struct {
 	pathfs.FileSystem
 
 	sess *S3Session
+
+	callTime *time.Time
 }
 
 func NewFileSystem(sess *S3Session) *pathfs.PathNodeFs {
 	return pathfs.NewPathNodeFs(&FileSystem{
 		FileSystem: pathfs.NewDefaultFileSystem(),
 		sess:       sess,
+		callTime:   timePtr(time.Now()),
 	}, nil)
 }
 
 func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.Status) {
 	pos := Parse(name)
-	log.Printf("GetAttr pos:%+v\n", pos)
 
 	if pos.IsMountRoot {
-		return &fuse.Attr{
+		attr := &fuse.Attr{
 			Ino:  inodeHash(rootKey()),
-			Mode: fuse.S_IFDIR | 0755,
-			Owner: fuse.Owner{
-				Uid: ctx.Owner.Uid,
-				Gid: ctx.Owner.Gid,
-			},
-		}, fuse.OK
+			Mode: fuse.S_IFDIR | 0777,
+		}
+		attr.SetTimes(f.callTime, f.callTime, f.callTime)
+		return attr, fuse.OK
 	}
 
 	if pos.IsBucketRoot {
 		if f.sess.ExistsBucket(pos.Bucket) {
-			return &fuse.Attr{
+			attr := &fuse.Attr{
 				Ino:  inodeHash(name),
-				Mode: fuse.S_IFDIR | 0755,
-				Owner: fuse.Owner{
-					Uid: ctx.Owner.Uid,
-					Gid: ctx.Owner.Gid,
-				},
-			}, fuse.OK
+				Mode: fuse.S_IFDIR | 0777,
+			}
+			attr.SetTimes(f.callTime, f.callTime, f.callTime)
+			return attr, fuse.OK
 		}
 		return nil, fuse.ENOENT
 	}
+
+	log.Printf("GetAttr pos:%s\n", name)
 
 	list, err := f.sess.List(pos.Bucket, pos.Key)
 	if err != nil {
@@ -64,24 +64,22 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 		return nil, fuse.ENOENT
 	}
 
-	if list[0] == pos.Key || strings.TrimRight(list[0], "/") == pos.Key {
+	if list[0].Key == pos.Key || strings.TrimRight(list[0].Key, "/") == pos.Key {
 		// 完全一致の場合はS3オブジェクトであるのでファイルとして扱う。ただし末尾がスラッシュの場合はフォルダ扱いとする
-		var mode uint32 = fuse.S_IFREG | 0755
+		var mode uint32 = fuse.S_IFREG | 0777
 
-		if strings.HasSuffix(list[0], "/") {
+		if strings.HasSuffix(list[0].Key, "/") {
 			mode = fuse.S_IFDIR | 0755
 		}
-
-		return &fuse.Attr{
+		attr := fuse.Attr{
 			Ino:    inodeHash(name),
-			Size:   uint64(15), // TODO
+			Size:   uint64(list[0].Size),
 			Blocks: 1,
 			Mode:   mode,
-			Owner: fuse.Owner{
-				Uid: ctx.Owner.Uid,
-				Gid: ctx.Owner.Gid,
-			},
-		}, fuse.OK
+		}
+		attr.SetTimes(nil, list[0].LastModified, list[0].LastModified)
+		return &attr, fuse.OK
+
 	}
 
 	return &fuse.Attr{
@@ -104,7 +102,6 @@ func (f *FileSystem) Open(name string, flags uint32, ctx *fuse.Context) (nodefs.
 		return nil, fuse.ENOENT
 	}
 
-	log.Println("get object:", string(get))
 	return &S3File{
 		File:   nodefs.NewDataFile(get),
 		bucket: pos.Bucket,
@@ -222,17 +219,18 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 	}
 
 	m := make(map[string]fuse.DirEntry, len(objKeys))
-	for _, objKey := range objKeys {
-		dirName := strings.Split(objKey, string(filepath.Separator))[0]
+	for _, obj := range objKeys {
+		dirName := strings.Split(obj.Key, string(filepath.Separator))[0]
 
-		if !pos.IsBucketRoot && strings.HasPrefix(objKey, pos.Key) {
-			dirName = NextParentPath(objKey, pos.Key)
+		if !pos.IsBucketRoot && strings.HasPrefix(obj.Key, pos.Key) {
+			dirName = NextParentPath(obj.Key, pos.Key)
 		}
 
-		log.Println("OpenDir objKey:", objKey, "dirName:", dirName, "currentPath:", pos.Key)
+		//log.Println("OpenDir objKey:", obj.Key, "dirName:", dirName, "currentPath:", pos.Key)
 		m[dirName] = fuse.DirEntry{
 			Name: dirName,
 			Ino:  inodeHash(path.Join(name, dirName)),
+			Mode: fuse.S_IFDIR | 0755,
 		}
 		continue
 	}
@@ -289,7 +287,7 @@ func (f *FileSystem) Unlink(name string, _ *fuse.Context) (code fuse.Status) {
 	return fuse.OK
 }
 
-func (f *FileSystem) Utimens(name string, Atime *time.Time, Mtime *time.Time, context *fuse.Context) (code fuse.Status) {
+func (f *FileSystem) Utimens(name string, Atime *time.Time, Mtime *time.Time, ctx *fuse.Context) (code fuse.Status) {
 	pos := Parse(name)
 	log.Println("Utimens pos:", pos)
 
@@ -298,6 +296,12 @@ func (f *FileSystem) Utimens(name string, Atime *time.Time, Mtime *time.Time, co
 
 	}
 	return fuse.ENOENT
+}
+
+func (f *FileSystem) Truncate(name string, offset uint64, ctx *fuse.Context) (code fuse.Status) {
+	pos := Parse(name)
+	log.Println("Truncate pos:", pos)
+	return fuse.OK
 }
 
 func (f *FileSystem) String() string {

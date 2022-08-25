@@ -1,4 +1,4 @@
-package lib
+package fs
 
 import (
 	"bytes"
@@ -9,9 +9,21 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"io"
+	"time"
 )
 
 var LocalStackEndpoint = "http://localhost:4566"
+
+type S3Object struct {
+	// S3 key
+	Key string
+
+	// S3 LastModified
+	LastModified *time.Time
+
+	// Size in bytes of the object
+	Size int64 `type:"integer"`
+}
 
 type S3Session struct {
 	svc *s3.S3
@@ -76,7 +88,7 @@ func (s *S3Session) Get(bucket, key string) ([]byte, error) {
 	return body, nil
 }
 
-func (s *S3Session) List(bucket, prefix string) ([]string, error) {
+func (s *S3Session) List(bucket, prefix string) ([]S3Object, error) {
 	objects, err := s.svc.ListObjects(&s3.ListObjectsInput{
 		Bucket: &bucket,
 		Prefix: &prefix,
@@ -85,11 +97,15 @@ func (s *S3Session) List(bucket, prefix string) ([]string, error) {
 		return nil, fmt.Errorf("list objects: %w", err)
 	}
 
-	keys := make([]string, 0, len(objects.Contents))
+	resp := make([]S3Object, 0, len(objects.Contents))
 	for _, v := range objects.Contents {
-		keys = append(keys, *v.Key)
+		resp = append(resp, S3Object{
+			Key:          *v.Key,
+			LastModified: v.LastModified,
+			Size:         *v.Size,
+		})
 	}
-	return keys, nil
+	return resp, nil
 }
 
 func (s *S3Session) ListBuckets() ([]string, error) {

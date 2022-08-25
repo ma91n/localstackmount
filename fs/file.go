@@ -1,4 +1,4 @@
-package lib
+package fs
 
 import (
 	"github.com/hanwen/go-fuse/fuse"
@@ -21,7 +21,7 @@ type S3File struct {
 }
 
 func (f *S3File) Read(dest []byte, off int64) (fuse.ReadResult, fuse.Status) {
-	log.Println("Read off:", off)
+	log.Println("s3file Read off:", off)
 
 	data, err := f.sess.Get(f.bucket, f.key)
 	if err != nil {
@@ -36,63 +36,100 @@ func (f *S3File) Read(dest []byte, off int64) (fuse.ReadResult, fuse.Status) {
 }
 
 func (f *S3File) Write(data []byte, off int64) (written uint32, code fuse.Status) {
-	log.Println("write:", string(data), "off:", off)
+	log.Println("s3file Write", "off:", off)
 
 	if f.temp == nil {
 		// 追記するには一度getする必要がある
-		data, err := f.sess.Get(f.bucket, f.key)
+		get, err := f.sess.Get(f.bucket, f.key)
 		if err != nil {
 			return 0, fuse.EIO
 		}
 
 		temp, err := os.CreateTemp("", "localstackmount")
 		if err != nil {
-			log.Printf("temp dir: %v\n", err)
 			return 0, fuse.EIO
 		}
-		_, _ = temp.Write(data)
 
+		if _, err := temp.Write(get); err != nil {
+			return 0, fuse.EIO
+		}
 		f.temp = temp
 	}
 
 	length, err := f.temp.WriteAt(data, off)
+
+	if _, err := f.temp.Seek(0, 0); err != nil { // 書き込んで分をflushで読み取らせるため、seekで位置を戻す
+		log.Println("seek err:", err)
+		return 0, fuse.EIO
+	}
+
 	if err != nil {
-		log.Printf("temp write: %v\n", err)
 		return 0, fuse.EIO
 	}
 	return uint32(length), fuse.OK
 }
 
 func (f *S3File) Release() {
-	log.Println("Release")
+	log.Println("s3file Release")
 
 	if f.temp != nil {
-		defer os.Remove(f.temp.Name())
+		defer func() {
+			_ = os.Remove(f.temp.Name())
+			f.temp = nil
+		}()
 	}
 }
 
 func (f *S3File) Flush() fuse.Status {
-	log.Println("flush")
+	log.Println("s3file Flush")
 	if f.temp == nil {
 		return fuse.OK
 	}
+	defer func() {
+		_ = os.Remove(f.temp.Name())
+		f.temp = nil
+	}()
 
 	body, err := io.ReadAll(f.temp)
 	if err != nil {
 		return fuse.EIO
 	}
-	log.Println("read from temp:", string(body))
 
 	if err := f.sess.PutBytes(f.bucket, f.key, body); err != nil {
 		return fuse.EIO
 	}
-
 	return fuse.OK
 }
 
 func (f *S3File) Utimens(atime *time.Time, mtime *time.Time) fuse.Status {
 	// TODO metadataにatime, mimeなどを格納する？
 	// https://stackoverflow.com/questions/13455168/is-there-a-way-to-touch-a-file-in-amazon-s3
+	return fuse.OK
+}
+
+func (f *S3File) Truncate(size uint64) fuse.Status {
+	log.Println("s3file Truncate size:", size)
+
+	if f.temp != nil {
+		_ = os.Remove(f.temp.Name())
+	}
+
+	temp, err := os.CreateTemp("", "localstackmount")
+	if err != nil {
+		return fuse.EIO
+	}
+	f.temp = temp
+
+	return fuse.OK
+}
+
+func (f *S3File) Allocate(off uint64, size uint64, mode uint32) (code fuse.Status) {
+	log.Println("s3file Allocate")
+	return fuse.OK
+}
+
+func (f *S3File) Fsync(flags int) (code fuse.Status) {
+	log.Println("s3file Fsync flags:", flags)
 	return fuse.OK
 }
 
