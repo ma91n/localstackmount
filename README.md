@@ -1,5 +1,5 @@
 # localstackmount
-S3 on LocalStack mount by goofys 
+S3 on LocalStack mount by go-fuse 
 
 
 ## Quick start
