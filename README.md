@@ -2,6 +2,14 @@
 S3 on LocalStack mount by go-fuse 
 
 
+## OSX settings
+
+Mac OSX is not supported FUSE.
+
+Install osxfuse below link.
+
+https://osxfuse.github.io/2020/10/05/OSXFUSE-3.11.2.html
+
 ## Quick start
 
 ```sh

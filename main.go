@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"path/filepath"
 	"syscall"
 )
 
@@ -25,7 +26,7 @@ func main() {
 
 	c := Input{
 		Region: endpoints.ApNortheast1RegionID,
-		Dir:    path.Join(dir, "mount/localstack"),
+		Dir:    path.Join(dir, "mount", "localstack"),
 	}
 
 	if err := mount(c); err != nil {
@@ -36,7 +37,7 @@ func main() {
 func mount(c Input) error {
 
 	// create mount point dir
-	_ = os.MkdirAll(c.Dir, 755)
+	_ = os.MkdirAll(c.Dir, 0777)
 
 	if err := doHealthCheck(); err != nil {
 		return err
@@ -48,7 +49,7 @@ func mount(c Input) error {
 
 	s, _, err := nodefs.MountRoot(c.Dir, fs.Root(), nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("nodefs mount root: %w", err)
 	}
 	defer s.Unmount()
 
@@ -67,8 +68,9 @@ func mount(c Input) error {
 			log.Print("unmount failed: ", err)
 		}
 	}()
+	abs, _ := filepath.Abs(c.Dir)
+	fmt.Printf("mount start: %s¥n", abs)
 
-	fmt.Println("mount start")
 	s.Serve()
 	return nil
 }
