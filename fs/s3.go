@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/patrickmn/go-cache"
 	"io"
 	"time"
 )
@@ -27,6 +28,8 @@ type S3Object struct {
 
 type S3Session struct {
 	svc *s3.S3
+
+	cache *cache.Cache
 }
 
 func NewS3Session(region string) *S3Session {
@@ -37,6 +40,7 @@ func NewS3Session(region string) *S3Session {
 			Region:           &region,
 			S3ForcePathStyle: aws.Bool(true),
 		}),
+		cache: cache.New(5*time.Second, 10*time.Second), // TODO 適切な値を決める
 	}
 }
 
@@ -49,13 +53,21 @@ func (s *S3Session) Exists(bucket, key string) bool {
 }
 
 func (s *S3Session) ExistsBucket(bucket string) bool {
+	if get, found := s.cache.Get(cacheKey("exists-bucket", bucket)); found {
+		return get.(bool)
+	}
+
 	_, err := s.svc.HeadBucket(&s3.HeadBucketInput{
 		Bucket: &bucket,
 	})
+
+	s.cache.Set(cacheKey("exists-bucket", bucket), err == nil, 1*time.Minute) // 通常バケットは削除されないと思うので長めに取る
 	return err == nil
 }
 
 func (s *S3Session) Put(bucket, key string, r io.ReadSeeker) error {
+	// TODO 一致するprefixがあればキャッシュから削除
+
 	_, err := s.svc.PutObject(&s3.PutObjectInput{
 		Bucket: &bucket,
 		Key:    &key,
@@ -68,6 +80,7 @@ func (s *S3Session) Put(bucket, key string, r io.ReadSeeker) error {
 }
 
 func (s *S3Session) PutBytes(bucket, key string, b []byte) error {
+	// TODO 一致するprefixがあればキャッシュから削除
 	return s.Put(bucket, key, bytes.NewReader(b))
 }
 
@@ -89,6 +102,10 @@ func (s *S3Session) Get(bucket, key string) ([]byte, error) {
 }
 
 func (s *S3Session) List(bucket, prefix string) ([]S3Object, error) {
+	if get, found := s.cache.Get(cacheKey(bucket, prefix)); found {
+		return get.([]S3Object), nil
+	}
+
 	objects, err := s.svc.ListObjects(&s3.ListObjectsInput{
 		Bucket: &bucket,
 		Prefix: &prefix,
@@ -105,6 +122,8 @@ func (s *S3Session) List(bucket, prefix string) ([]S3Object, error) {
 			Size:         *v.Size,
 		})
 	}
+
+	s.cache.Set(cacheKey(bucket, prefix), resp, cache.DefaultExpiration)
 	return resp, nil
 }
 
@@ -122,6 +141,8 @@ func (s *S3Session) ListBuckets() ([]string, error) {
 }
 
 func (s *S3Session) Delete(bucket, key string) error {
+	// TODO 一致するprefixがあればキャッシュから削除
+
 	_, err := s.svc.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -143,4 +164,8 @@ func (s *S3Session) CreateBucket(bucket string) error {
 		return fmt.Errorf("create bucket: %v", err)
 	}
 	return nil
+}
+
+func cacheKey(bucket, key string) string {
+	return fmt.Sprintf("%s:%s", bucket, key)
 }
