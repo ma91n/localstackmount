@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
+	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/ma91n/localstackmount/fs"
 	"io"
@@ -52,7 +53,7 @@ func mount(c Input) error {
 	opts := &nodefs.Options{
 		Debug: c.Debug,
 	}
-	s, _, err := nodefs.MountRoot(c.Dir, fileSystem.Root(), opts)
+	s, _, err := mountRoot(c.Dir, fileSystem.Root(), opts)
 	if err != nil {
 		return fmt.Errorf("nodefs mount root: %w", err)
 	}
@@ -78,6 +79,22 @@ func mount(c Input) error {
 
 	s.Serve()
 	return nil
+}
+
+func mountRoot(mountpoint string, root nodefs.Node, opts *nodefs.Options) (*fuse.Server, *nodefs.FileSystemConnector, error) {
+	conn := nodefs.NewFileSystemConnector(root, opts)
+
+	mountOpts := fuse.MountOptions{
+		AllowOther: true, // TODO コマンドライン引数から取得
+	}
+	if opts != nil && opts.Debug {
+		mountOpts.Debug = opts.Debug
+	}
+	s, err := fuse.NewServer(conn.RawFS(), mountpoint, &mountOpts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, conn, nil
 }
 
 type Health struct {
