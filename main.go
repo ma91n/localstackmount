@@ -7,6 +7,7 @@ import (
 	"github.com/hanwen/go-fuse/fuse"
 	"github.com/hanwen/go-fuse/fuse/nodefs"
 	"github.com/ma91n/localstackmount/fs"
+	"golang.org/x/exp/slices"
 	"io"
 	"log"
 	"net/http"
@@ -121,7 +122,7 @@ func doHealthCheck() error {
 		return fmt.Errorf("localhost health check response is invalid :%v, %s", err, string(all))
 	}
 
-	if body.Services.S3 != "running" {
+	if !slices.Contains([]string{"running", "available"}, body.Services.S3) {
 		return fmt.Errorf("localstack s3 service is not running. response is %s", string(all))
 	}
 	return nil
