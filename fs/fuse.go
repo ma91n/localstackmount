@@ -79,7 +79,6 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 		}
 		attr.SetTimes(nil, list[0].LastModified, list[0].LastModified)
 		return &attr, fuse.OK
-
 	}
 
 	return &fuse.Attr{
@@ -226,7 +225,6 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 			dirName = NextParentPath(obj.Key, pos.Key)
 		}
 
-		//log.Println("OpenDir objKey:", obj.Key, "dirName:", dirName, "currentPath:", pos.Key)
 		m[dirName] = fuse.DirEntry{
 			Name: dirName,
 			Ino:  inodeHash(path.Join(name, dirName)),
@@ -274,6 +272,7 @@ func (f *FileSystem) Unlink(name string, _ *fuse.Context) (code fuse.Status) {
 	log.Printf("Unlink pos:%+v\n", pos)
 
 	if pos.IsMountRoot || pos.IsBucketRoot {
+		// TODO Bucketを削除したい場合は削除して良さそう
 		return fuse.EPERM
 	}
 
@@ -296,12 +295,6 @@ func (f *FileSystem) Utimens(name string, Atime *time.Time, Mtime *time.Time, ct
 
 	}
 	return fuse.ENOENT
-}
-
-func (f *FileSystem) Truncate(name string, offset uint64, ctx *fuse.Context) (code fuse.Status) {
-	pos := Parse(name)
-	log.Println("Truncate pos:", pos)
-	return fuse.OK
 }
 
 func (f *FileSystem) String() string {

@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/aws/aws-sdk-go v1.44.81
 	github.com/hanwen/go-fuse v1.0.0
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/spaolacci/murmur3 v1.1.0
 	golang.org/x/exp v0.0.0-20220826144839-4cc3b17fd1f1
 )
