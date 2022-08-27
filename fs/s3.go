@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/patrickmn/go-cache"
 	"io"
+	"log"
 	"time"
 )
 
@@ -66,7 +67,10 @@ func (s *S3Session) ExistsBucket(bucket string) bool {
 }
 
 func (s *S3Session) Put(bucket, key string, r io.ReadSeeker) error {
-	// TODO 一致するprefixがあればキャッシュから削除
+	for _, keyPath := range DirCombination(key) {
+		log.Println(keyPath)
+		s.cache.Delete(cacheKey(bucket, keyPath))
+	}
 
 	_, err := s.svc.PutObject(&s3.PutObjectInput{
 		Bucket: &bucket,
@@ -80,7 +84,6 @@ func (s *S3Session) Put(bucket, key string, r io.ReadSeeker) error {
 }
 
 func (s *S3Session) PutBytes(bucket, key string, b []byte) error {
-	// TODO 一致するprefixがあればキャッシュから削除
 	return s.Put(bucket, key, bytes.NewReader(b))
 }
 
@@ -128,6 +131,10 @@ func (s *S3Session) List(bucket, prefix string) ([]S3Object, error) {
 }
 
 func (s *S3Session) ListBuckets() ([]string, error) {
+	if get, found := s.cache.Get(cacheKey("list-buckets", "")); found {
+		return get.([]string), nil
+	}
+
 	out, err := s.svc.ListBuckets(&s3.ListBucketsInput{})
 	if err != nil {
 		return nil, fmt.Errorf("list bucket: %w", err)
@@ -137,11 +144,17 @@ func (s *S3Session) ListBuckets() ([]string, error) {
 	for _, v := range out.Buckets {
 		bucketNames = append(bucketNames, *v.Name)
 	}
+
+	s.cache.Set(cacheKey("list-buckets", ""), bucketNames, cache.DefaultExpiration)
 	return bucketNames, nil
 }
 
 func (s *S3Session) Delete(bucket, key string) error {
-	// TODO 一致するprefixがあればキャッシュから削除
+	for _, keyPath := range DirCombination(key) {
+		log.Println(keyPath)
+
+		s.cache.Delete(cacheKey(bucket, keyPath))
+	}
 
 	_, err := s.svc.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: aws.String(bucket),
@@ -163,7 +176,21 @@ func (s *S3Session) CreateBucket(bucket string) error {
 	if err != nil {
 		return fmt.Errorf("create bucket: %v", err)
 	}
+
+	// list-bucketの結果からも削除
+	s.cache.Delete(cacheKey("list-buckets", ""))
+	s.cache.Set(cacheKey("exists-bucket", bucket), true, 1*time.Minute) // 通常バケットは削除されないと思うので長めに取る
 	return nil
+}
+
+func (s *S3Session) DeleteBucket(bucket string) error {
+	_, err := s.svc.DeleteBucket(&s3.DeleteBucketInput{
+		Bucket: &bucket,
+	})
+
+	s.cache.Delete(cacheKey("exists-bucket", bucket))
+	s.cache.Delete(cacheKey("list-buckets", ""))
+	return err
 }
 
 func cacheKey(bucket, key string) string {

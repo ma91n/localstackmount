@@ -58,7 +58,7 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 
 	list, err := f.sess.List(pos.Bucket, pos.Key)
 	if err != nil {
-		return nil, fuse.ENOENT
+		return nil, fuse.EIO
 	}
 	if len(list) == 0 {
 		return nil, fuse.ENOENT
@@ -110,6 +110,8 @@ func (f *FileSystem) Open(name string, flags uint32, ctx *fuse.Context) (nodefs.
 }
 
 func (f *FileSystem) Rename(oldName string, newName string, _ *fuse.Context) fuse.Status {
+	log.Println("Rename:", oldName, newName)
+
 	pos := Parse(oldName)
 	destPos := Parse(newName)
 	if pos.IsMountRoot || pos.IsBucketRoot || destPos.IsMountRoot || destPos.IsBucketRoot {
@@ -141,16 +143,17 @@ func (f *FileSystem) Rename(oldName string, newName string, _ *fuse.Context) fus
 }
 
 func (f *FileSystem) Mkdir(name string, mode uint32, ctx *fuse.Context) fuse.Status {
+	log.Println("Mkdir:", name)
+
 	pos := Parse(name)
 
 	if pos.IsMountRoot {
-		// bug?
-		return fuse.EISDIR
+		return fuse.EISDIR // bug?
 	}
 
 	if pos.IsBucketRoot {
 		if f.sess.ExistsBucket(pos.Bucket) {
-			return fuse.ENODATA // TODO already exists
+			return fuse.EPERM // already exists
 		}
 		if err := f.sess.CreateBucket(pos.Bucket); err != nil {
 			return fuse.EIO
@@ -160,9 +163,13 @@ func (f *FileSystem) Mkdir(name string, mode uint32, ctx *fuse.Context) fuse.Sta
 
 	// S3は slash / で終わるとフォルダとして判定される
 	// https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-folders.html
-	dirName := pos.Key + "/"
+	dirName := pos.Key
+	if !strings.HasSuffix(pos.Key, "/") {
+		dirName = pos.Key + "/"
+	}
 
 	if err := f.sess.PutBytes(pos.Bucket, dirName, []byte{}); err != nil {
+		log.Println("put bytes:", err)
 		return fuse.EIO
 	}
 
@@ -271,9 +278,36 @@ func (f *FileSystem) Unlink(name string, _ *fuse.Context) (code fuse.Status) {
 	pos := Parse(name)
 	log.Printf("Unlink pos:%+v\n", pos)
 
-	if pos.IsMountRoot || pos.IsBucketRoot {
-		// TODO Bucketを削除したい場合は削除して良さそう
+	if !f.sess.Exists(pos.Bucket, pos.Key) {
+		return fuse.ENOENT
+	}
+
+	if err := f.sess.Delete(pos.Bucket, pos.Key); err != nil {
+		return fuse.EIO
+	}
+	return fuse.OK
+}
+
+func (f *FileSystem) Rmdir(name string, ctx *fuse.Context) (code fuse.Status) {
+	pos := Parse(name)
+	log.Printf("Rmdir pos:%+v\n", pos)
+
+	if pos.IsMountRoot {
 		return fuse.EPERM
+	}
+
+	if pos.IsBucketRoot {
+		if !f.sess.ExistsBucket(pos.Bucket) {
+			return fuse.ENOENT
+		}
+		if err := f.sess.DeleteBucket(pos.Bucket); err != nil {
+			return fuse.EIO
+		}
+		return fuse.OK
+	}
+
+	if !strings.HasSuffix(name, "/") {
+		pos.Key = pos.Key + "/"
 	}
 
 	if !f.sess.Exists(pos.Bucket, pos.Key) {
