@@ -128,24 +128,55 @@ func (f *FileSystem) Rename(oldName string, newName string, _ *fuse.Context) fus
 		return fuse.EPERM
 	}
 
-	if !f.sess.Exists(pos.Bucket, pos.Key) {
-		return fuse.ENOENT
+	if f.sess.Exists(pos.Bucket, pos.Key) {
+		if err := f.move(NewMove(pos, destPos)); err != nil {
+			return fuse.EIO
+		}
+		return fuse.OK
 	}
 
-	get, err := f.sess.Get(pos.Bucket, pos.Key)
+	// 完全一致するオブジェクトが存在しない場合、ディレクトリを指定された可能性がある。suffixに区切り文字を付与して検索する
+	list, err := f.sess.List(pos.Bucket, pos.Key+"/")
 	if err != nil {
 		return fuse.EIO
 	}
 
-	if err := f.sess.PutBytes(destPos.Bucket, destPos.Key, get); err != nil {
-		return fuse.EIO
+	if len(list) == 0 {
+		return fuse.ENOENT
 	}
 
-	if err := f.sess.Delete(pos.Bucket, pos.Key); err != nil {
-		return fuse.EIO
+	moves := make([]Move, 0, len(list))
+	for _, v := range list {
+		moves = append(moves, Move{
+			SourceBucket: pos.Bucket,
+			SourceKey:    v.Key,
+			DestBucket:   destPos.Bucket,
+			DestKey:      strings.Replace(v.Key, pos.Key, destPos.Key, 1),
+		})
 	}
 
+	for _, m := range moves {
+		if err := f.move(m); err != nil {
+			return fuse.EIO
+		}
+	}
 	return fuse.OK
+}
+
+func (f *FileSystem) move(m Move) error {
+	get, err := f.sess.Get(m.SourceBucket, m.SourceKey)
+	if err != nil {
+		return err
+	}
+
+	if err := f.sess.PutBytes(m.DestBucket, m.DestKey, get); err != nil {
+		return err
+	}
+
+	if err := f.sess.Delete(m.SourceBucket, m.SourceKey); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (f *FileSystem) Mkdir(name string, mode uint32, ctx *fuse.Context) fuse.Status {
