@@ -44,3 +44,11 @@ echo "hello localstackmount" > hello.txt
 # s3 get object
 cat hello.txt
 ```
+
+## Limitations
+
+* [ ] does not store file `mode` / `owner` / `group`
+* [ ] does not support `symlink` or `hardlink`
+* [ ] `ctime`, atime and `mtime` are partially implement.
+* [ ] cannot `rename` virtual directory. only support directory object.
+
