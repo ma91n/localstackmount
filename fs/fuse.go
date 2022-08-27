@@ -192,7 +192,7 @@ func (f *FileSystem) Create(name string, flags uint32, mode uint32, ctx *fuse.Co
 	pos := Parse(name)
 
 	if f.sess.Exists(pos.Bucket, pos.Key) {
-		return nil, fuse.EINVAL // TODO already existsを表現したい
+		return nil, fuse.EINVAL
 	}
 
 	if err := f.sess.PutBytes(pos.Bucket, pos.Key, make([]byte, 0)); err != nil {
