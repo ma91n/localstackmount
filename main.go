@@ -34,7 +34,7 @@ func main() {
 	}
 
 	if err := mount(c); err != nil {
-		panic(err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 	}
 }
 
@@ -88,6 +88,7 @@ func mountRoot(mountpoint string, root nodefs.Node, opts *nodefs.Options) (*fuse
 	mountOpts := fuse.MountOptions{
 		AllowOther: true, // TODO コマンドライン引数から取得
 	}
+	mountOpts.Options = append(mountOpts.Options, "nonempty") // TODO
 	if opts != nil && opts.Debug {
 		mountOpts.Debug = opts.Debug
 	}

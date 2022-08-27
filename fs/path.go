@@ -28,6 +28,18 @@ func NextParentPath(s, prefix string) string {
 	return MostParentPath(child)
 }
 
+func DirCombination(keyPath string) []string {
+	split := strings.Split(keyPath, string(filepath.Separator))
+
+	resp := make([]string, 0, len(split)+1)
+	resp = append(resp, "") // Bucketルートパスを示す
+
+	for i := range split {
+		resp = append(resp, path.Join(split[:i+1]...))
+	}
+	return resp
+}
+
 type Position struct {
 	IsMountRoot  bool
 	IsBucketRoot bool
