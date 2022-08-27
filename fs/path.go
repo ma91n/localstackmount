@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"golang.org/x/exp/slices"
 	"path"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ type Position struct {
 }
 
 func Parse(name string) Position {
-	if name == "" || name == "." {
+	if slices.Contains([]string{"", "."}, path.Clean(name)) {
 		return Position{
 			IsMountRoot:  true,
 			IsBucketRoot: false,
@@ -69,4 +70,29 @@ func Parse(name string) Position {
 		Key:          key,
 		OriginalPath: name,
 	}
+}
+
+func CanAccess(list []string, destPath string) bool {
+	destSplit := strings.Split(destPath, string(filepath.Separator))
+	for _, v := range list {
+		if !strings.HasPrefix(v, destPath) {
+			continue
+		}
+
+		split := strings.Split(v, string(filepath.Separator))
+
+		if len(destSplit) > len(split) {
+			continue
+		}
+
+		for i := range destSplit {
+			if destSplit[i] != split[i] {
+				break
+			}
+			if i == len(destSplit)-1 {
+				return true // 完全一致した場合は移動可能
+			}
+		}
+	}
+	return false
 }

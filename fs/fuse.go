@@ -81,6 +81,16 @@ func (f *FileSystem) GetAttr(name string, ctx *fuse.Context) (*fuse.Attr, fuse.S
 		return &attr, fuse.OK
 	}
 
+	listPaths := make([]string, 0, len(list))
+	for _, v := range list {
+		listPaths = append(listPaths, v.Key)
+	}
+
+	if !CanAccess(listPaths, pos.Key) {
+		// prefixで一致しても、パスの部分一致の可能性がある
+		return nil, fuse.ENOENT
+	}
+
 	return &fuse.Attr{
 		Ino:  inodeHash(name),
 		Mode: fuse.S_IFDIR | 0755,
@@ -268,6 +278,9 @@ func (f *FileSystem) Access(name string, mode uint32, _ *fuse.Context) (code fus
 		return fuse.EIO
 	}
 	if len(list) > 0 {
+		// https://github.com/ma91n/localstackmount/issues/9
+		// prefixに一致するファイルが存在するが、要素の部分一致である場合は存在しないディレクトリとして扱いたい
+
 		return fuse.OK
 	}
 
