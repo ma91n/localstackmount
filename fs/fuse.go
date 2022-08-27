@@ -128,10 +128,6 @@ func (f *FileSystem) Rename(oldName string, newName string, _ *fuse.Context) fus
 		return fuse.EPERM
 	}
 
-	if f.sess.Exists(destPos.Bucket, destPos.Key) {
-		return fuse.EINVAL // TODO already exists
-	}
-
 	if !f.sess.Exists(pos.Bucket, pos.Key) {
 		return fuse.ENOENT
 	}
@@ -258,8 +254,9 @@ func (f *FileSystem) OpenDir(name string, _ *fuse.Context) ([]fuse.DirEntry, fus
 }
 
 func (f *FileSystem) Access(name string, mode uint32, _ *fuse.Context) (code fuse.Status) {
+	log.Printf("Access pos:%+v\n", name)
+
 	pos := Parse(name)
-	log.Printf("Access pos:%+v\n", pos)
 
 	if pos.IsMountRoot {
 		return fuse.OK
