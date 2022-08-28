@@ -1,4 +1,4 @@
-version: "3.8"
+version: "3.9"
 
 services:
   localstack:
@@ -40,12 +40,13 @@ services:
     security_opt:
       - apparmor:unconfined
     volumes:
-#      - ./mount:/root/mount/localstack:ro
       # https://matsuand.github.io/docs.docker.jp.onthefly/compose/compose-file/compose-file-v3/#volumes
+      # https://docs.docker.com/compose/compose-file/compose-file-v3/#long-syntax-3
       - type: bind
-        source: ./mount
+        source: mount
         target: /root/mount
         bind:
+          # https://docs.docker.com/storage/bind-mounts/#configure-bind-propagation
           propagation: rshared
     depends_on:
       localstack:
