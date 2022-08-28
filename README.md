@@ -45,6 +45,18 @@ echo "hello localstackmount" > hello.txt
 cat hello.txt
 ```
 
+## docker compose
+
+WIP 
+
+```sh
+docker compose up -d
+docker exec -it localstackmount-mount-1 bash
+cd ~/mount/localstack/
+ls
+# <your buckets>
+```
+
 
 ## Limitations
 
