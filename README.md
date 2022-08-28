@@ -23,7 +23,7 @@ Make sure you edit
 
 ```sh
 # if you want run localstack
-# docker-compose up -d
+# docker-compose up -d localstack
 
 go install github.com/ma91n/localstackmount@latest
 localstackmount
@@ -44,6 +44,7 @@ echo "hello localstackmount" > hello.txt
 # s3 get object
 cat hello.txt
 ```
+
 
 ## Limitations
 

@@ -1,15 +1,16 @@
-version:
-  '2.2'
+version: "3.8"
 
 services:
   localstack:
-    image: localstack/localstack:1.0.3
+    image: localstack/localstack:1.0.4
     ports:
       - "127.0.0.1:4566:4566/tcp"
     environment:
       - SERVICES=s3
       - DEBUG=debug
       - DEFAULT_REGION=ap-northeast-1
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
       - USE_SINGLE_REGION
       - DOCKER_HOST=unix:///var/run/docker.sock
       - INIT_SCRIPTS_PATH=/localstack_init
@@ -17,3 +18,35 @@ services:
       - "${LOCALSTACK_VOLUME_DIR:-./volume}:/var/lib/localstack"
       - "/var/run/docker.sock:/var/run/docker.sock"
       - "./localstack_init:/localstack_init"
+    healthcheck:
+      test: "aws --endpoint-url=http://localhost:4566 s3api wait bucket-exists --bucket local-test"
+
+  mount:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - AWS_REGION=ap-northeast-1
+      - AWS_ACCESS_KEY_ID=dummy
+      - AWS_SECRET_ACCESS_KEY=dummy
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+    devices:
+      # FUSE を基盤とするファイルシステムをマウントするには、 --cap-add と --device の両方を使う必要があります
+      # https://docs.docker.jp/v1.9/engine/reference/run.html
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    privileged: true
+    security_opt:
+      - apparmor:unconfined
+    volumes:
+#      - ./mount:/root/mount/localstack:ro
+      # https://matsuand.github.io/docs.docker.jp.onthefly/compose/compose-file/compose-file-v3/#volumes
+      - type: bind
+        source: ./mount
+        target: /root/mount
+        bind:
+          propagation: rshared
+    depends_on:
+      localstack:
+        condition: service_healthy

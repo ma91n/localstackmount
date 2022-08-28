@@ -18,19 +18,31 @@ import (
 	"syscall"
 )
 
+const localStackEndpoint = "http://localhost:4566"
+
 type Input struct {
-	Region string
-	Dir    string
-	Debug  bool
+	Region             string
+	LocalStackEndpoint string
+	Dir                string
+	Debug              bool
 }
 
 func main() {
 	dir, _ := os.UserHomeDir()
 
 	c := Input{
-		Region: endpoints.ApNortheast1RegionID,
-		Dir:    path.Join(dir, "mount", "localstack"),
-		Debug:  false,
+		Region:             endpoints.ApNortheast1RegionID,
+		LocalStackEndpoint: localStackEndpoint,
+		Dir:                path.Join(dir, "mount", "localstack"),
+		Debug:              false,
+	}
+
+	if os.Getenv("AWS_REGION") != "" {
+		c.Region = os.Getenv("AWS_REGION")
+	}
+
+	if os.Getenv("LOCALSTACK_ENDPOINT") != "" {
+		c.LocalStackEndpoint = os.Getenv("LOCALSTACK_ENDPOINT")
 	}
 
 	if err := mount(c); err != nil {
@@ -43,11 +55,11 @@ func mount(c Input) error {
 	// create mount point dir
 	_ = os.MkdirAll(c.Dir, 0777)
 
-	if err := doHealthCheck(); err != nil {
+	if err := doHealthCheck(c.LocalStackEndpoint); err != nil {
 		return err
 	}
 
-	sess := fs.NewS3Session(c.Region)
+	sess := fs.NewS3Session(c.Region, c.LocalStackEndpoint)
 
 	fileSystem := fs.NewFileSystem(sess)
 
@@ -106,8 +118,8 @@ type Health struct {
 }
 
 // LocalStackの起動チェック
-func doHealthCheck() error {
-	resp, err := http.Get("http://localhost:4566/health")
+func doHealthCheck(localStackEndpoint string) error {
+	resp, err := http.Get(localStackEndpoint + "/health")
 	if err != nil {
 		return fmt.Errorf("localhost is not running? :%v", err)
 	}
@@ -120,7 +132,7 @@ func doHealthCheck() error {
 
 	var body Health
 	if err := json.Unmarshal(all, &body); err != nil {
-		return fmt.Errorf("localhost health check response is invalid :%v, %s", err, string(all))
+		return fmt.Errorf("localhost health check response is invalid :%v, status:%s body:%s", err, resp.Status, string(all))
 	}
 
 	if !slices.Contains([]string{"running", "available"}, body.Services.S3) {

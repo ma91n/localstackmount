@@ -1,0 +1,10 @@
+dist
+localstack_init
+.idea
+.goreleaser.yaml
+Dockerfile
+docker-compose.yml
+volume
+mount
+LICENSE
+*.md

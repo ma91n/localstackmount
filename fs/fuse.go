@@ -192,7 +192,7 @@ func (f *FileSystem) Mkdir(name string, mode uint32, ctx *fuse.Context) fuse.Sta
 		if f.sess.ExistsBucket(pos.Bucket) {
 			return fuse.EPERM // already exists
 		}
-		if err := f.sess.CreateBucket(pos.Bucket); err != nil {
+		if err := f.sess.CreateBucket(f.sess.Region, pos.Bucket); err != nil {
 			return fuse.EIO
 		}
 		return fuse.OK

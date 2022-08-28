@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/endpoints"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/patrickmn/go-cache"
@@ -13,8 +12,6 @@ import (
 	"log"
 	"time"
 )
-
-var LocalStackEndpoint = "http://localhost:4566"
 
 type S3Object struct {
 	// S3 key
@@ -31,17 +28,20 @@ type S3Session struct {
 	svc *s3.S3
 
 	cache *cache.Cache
+
+	Region string
 }
 
-func NewS3Session(region string) *S3Session {
+func NewS3Session(region, localStackEndpoint string) *S3Session {
 	return &S3Session{
 		svc: s3.New(session.Must(session.NewSession()), &aws.Config{
 			Credentials:      credentials.NewStaticCredentials("test", "test", ""),
-			Endpoint:         &LocalStackEndpoint,
+			Endpoint:         &localStackEndpoint,
 			Region:           &region,
 			S3ForcePathStyle: aws.Bool(true),
 		}),
-		cache: cache.New(5*time.Second, 10*time.Second), // TODO 適切な値を決める
+		cache:  cache.New(5*time.Second, 10*time.Second), // TODO 適切な値を決める
+		Region: region,
 	}
 }
 
@@ -166,11 +166,11 @@ func (s *S3Session) Delete(bucket, key string) error {
 	return nil
 }
 
-func (s *S3Session) CreateBucket(bucket string) error {
+func (s *S3Session) CreateBucket(region, bucket string) error {
 	_, err := s.svc.CreateBucket(&s3.CreateBucketInput{
 		Bucket: &bucket,
 		CreateBucketConfiguration: &s3.CreateBucketConfiguration{
-			LocationConstraint: aws.String(endpoints.ApNortheast1RegionID), // TODO changeable
+			LocationConstraint: &region,
 		},
 	})
 	if err != nil {

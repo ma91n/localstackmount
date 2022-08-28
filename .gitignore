@@ -19,3 +19,5 @@ volume
 .idea
 
 dist/
+
+mount/
